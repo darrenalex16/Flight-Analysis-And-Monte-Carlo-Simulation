@@ -1,0 +1,582 @@
+---
+title: "ST2195 Programming Coursework Part 2"
+author: "Darren Alexander"
+output: html_document
+---
+
+### Part 2
+
+#### Before answering the part 2 questions, we will do an initiation of the notebook first. This process requires us to import relevant library packages for analysis as well as reading the given datasets.
+
+```{r}
+# Packages Used For The Analysis
+library(dplyr) 
+library(tidyverse)
+library(ggplot2)
+library(scales) 
+library(reshape2)
+library(lubridate)
+library(gplots) 
+library(ggpubr)
+library(caret) 
+library(ROCit)
+library(AUC)
+```
+
+```{r}
+# Read The Given Dataset
+plane_data <- read.csv("/Users/darren/Downloads/flight_dataset/plane-data.csv")
+airport_data <- read.csv("/Users/darren/Downloads/flight_dataset/airports.csv")
+```
+
+```{r}
+# Read The Given Dataset
+flight2004 <- read.csv("/Users/darren/Downloads/flight_dataset/2004.csv.bz2", nrows = 10000)
+flight2005 <- read.csv("/Users/darren/Downloads/flight_dataset/2005.csv.bz2", nrows = 10000)
+flight2006 <- read.csv("/Users/darren/Downloads/flight_dataset/2006.csv.bz2", nrows = 10000)
+flight2007 <- read.csv("/Users/darren/Downloads/flight_dataset/2007.csv.bz2", nrows = 10000)
+flight2008 <- read.csv("/Users/darren/Downloads/flight_dataset/2008.csv.bz2", nrows = 10000)
+```
+
+#### After the dataset is read, Next step will be merging all the data frame.
+
+```{r}
+# Merging The Data Frame
+dfmerge <- rbind(flight2004, flight2005, flight2006, flight2007, flight2008)
+head(dfmerge)
+tail(dfmerge)
+```
+
+```{r}
+dfmerge[is.na(dfmerge)] <- 0
+```
+
+#### After all the initiation is completed, now we can start to answer the questions.
+
+### Question 2a. (What are the best times and days of the week to minimise delays each year?)
+
+Question Part 2a instruct us to use the given attributes from the datasets to show the best time and days of the week in minimizing the delays each year. The attributes that are going to be use are: DayOfWeek as the attribute that holds which day the flight happened, CRSDepTime as the attribute that holds the scheduled departure time, and any attributes that show how that specific flight run into delay.
+
+Additionally, as the main focus is to minimize delays, we will also use DepDelay as the attribute that holds the amount of minutes that specific flights got delayed. This is chosen due to the departure delay is most likely that makes the passenger complains and remember the specific delay.
+
+Besides that, we will also make a new attribute in determining whether a flight got delayed or not, considering no matter how big or small it is. This attribute is called Delayed, where it is a categorical attribute that holds one if it is a delayed flights, and zero if it is not.
+
+```{r}
+df_DayTime <- select(dfmerge, 'DayOfWeek','CRSDepTime','DepDelay')
+head(df_DayTime)
+```
+
+```{r}
+df_DayTime$Delayed <- 0
+
+for (i in 1:nrow(df_DayTime)) {
+  n <- if (df_DayTime$DepDelay[i] > 0) 1 else 0
+  df_DayTime$Delayed[i] <- n
+}
+head(df_DayTime)
+tail(df_DayTime)
+```
+
+#### The next step will be grouping all the flights on each days and timeframes. These timeframes will divide the 24 hours into a more bounded group, consisted of: Morning (5:00 to 12:00), Afternoon (12:00 to 17:00), Evening (17:00 to 21:00), and Night (21:00 to 5:00) flights.
+
+```{r}
+df_DayTime <- df_DayTime %>%
+  mutate(
+    DayOfWeek = case_when(
+      DayOfWeek %in% 1 ~ "Monday",
+      DayOfWeek %in% 2 ~ "Tuesday",
+      DayOfWeek %in% 3 ~ "Wednesday",
+      DayOfWeek %in% 4 ~ "Thursday",
+      DayOfWeek %in% 5 ~ "Friday",
+      DayOfWeek %in% 6 ~ "Saturday",
+      DayOfWeek %in% 7 ~ "Sunday"))
+
+head(df_DayTime)
+tail(df_DayTime)
+```
+
+```{r}
+df_DayTime <- df_DayTime %>%
+  mutate(
+    TimeofDay = case_when(
+      CRSDepTime %in% 500:1200 ~ "Morning",
+      CRSDepTime %in% 1200:1700 ~ "Afternoon",
+      CRSDepTime %in% 1700:2100 ~ "Evening",
+      TRUE ~ "Night"))
+
+head(df_DayTime)
+tail(df_DayTime)
+```
+
+#### After that, we will start to visualize them.
+
+```{r}
+temp_day <- select(df_DayTime, 'DayOfWeek', 'Delayed')
+
+temp_day %>%
+mutate(DayOfWeek = factor(DayOfWeek, levels = c('Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'))) %>% 
+  ggplot(aes(x = DayOfWeek)) + 
+  geom_bar()
+```
+
+From the output bar graph it shows that since Monday to Sunday amount of flights delayed increase steadily until Thursday, eventually decreasing consistently until Sunday. Additionally, as the main target is to find the best days of the week in minimizing the delays, the illustration indicates that on Monday amount of delayed flights is at its lowest compare to any other days.
+
+#### After finding the day which give the lowest amount of delayed flights, we will start to do the same steps on the timeframes.
+
+```{r}
+temp_time <- select(df_DayTime, 'TimeofDay', 'Delayed')
+
+temp_time %>%
+mutate(TimeofDay = factor(TimeofDay, levels = c('Morning', 'Afternoon', 'Evening', 'Night'))) %>% 
+  ggplot(aes(x = TimeofDay)) + 
+  geom_bar()
+```
+
+The graph above shows that the delay happens less as the day goes by, with night flights has nearly 1/8 the morning delays.
+
+#### In conclusion, the best time and days of the week in minimizing the delays will be choosing the night flight around 21.00 to 05.00 on Monday.
+
+### Question 2b. (Evaluate whether older planes suffer more delays on a year-to-year basis)
+
+Question Part 2b instruct us to evaluate on aircraft/plane's age and see if they receive more delay than the newer aircrafts. However, due to the data about aircraft age lies on a different datasets, we need to join them first. Then, we can start to evaluate aircraft age connection with delays.
+
+```{r}
+plane_data <- select(plane_data, 'year','tailnum')
+plane_data[is.na(plane_data)] <- 0
+```
+
+```{r}
+dfAge_Delays <- select(dfmerge, 'TailNum','Year')
+dfAge_Delays[is.na(dfAge_Delays)] <- 0
+
+head(dfAge_Delays)
+tail(dfAge_Delays)
+```
+
+#### In this step, we will use the categorical delay data in the Delayed attributes to tell if a flights run into delays or not.
+
+```{r}
+dfAge_Delays$Delayed <- df_DayTime$Delayed
+
+head(dfAge_Delays)
+tail(dfAge_Delays)
+```
+
+```{r}
+dfAge_Delays <- merge(x = dfAge_Delays, y = plane_data, by.x = "TailNum", by.y = "tailnum") 
+
+
+dfAge_Delays[is.na(dfAge_Delays)] <- 0
+
+head(dfAge_Delays)
+tail(dfAge_Delays)
+```
+
+#### After the build year and usage year is combined in the same dataframe, create a new attribute to hold the aircraft age.
+
+```{r}
+# Change The Datatype
+dfAge_Delays$year <- as.integer(dfAge_Delays$year)
+
+dfAge_Delays$AircraftAge <- (dfAge_Delays$Year - dfAge_Delays$year)
+
+
+head(dfAge_Delays)
+tail(dfAge_Delays)
+```
+
+```{r}
+dfAge_Delays %>%
+  ggplot(aes(x = AircraftAge)) + 
+  geom_bar()
+```
+
+#### The next step will be trimming the outlier.
+
+```{r}
+# Data cleaning
+
+dfAge_Delays = dfAge_Delays[dfAge_Delays$AircraftAge > 0, ]
+dfAge_Delays = dfAge_Delays[dfAge_Delays$AircraftAge < 27, ]
+
+dfAge_Delays %>%
+  ggplot(aes(x = AircraftAge)) + 
+  geom_bar()
+
+```
+
+Due to every age have more than one amount of delay, we couldn't apply the Spearman Correlation. Hence, we will try to use the Point-Biserial Correlation. However, to apply the use of Point-Biseral Correlation, first we need to fulfil few assumptions. Each assumptions will be solve in the line below.
+
+#### First Assumption: Does the two variables follow a normal distribution?
+
+In answering the first assumption, QQ plot will be use to see the normality of both attributes.
+
+```{r}
+qqnorm(dfAge_Delays$AircraftAge)
+```
+
+From the Q-Q Plot above, it shows that the aircraft age attributes leans to a right-skewed data. For the delayed attributes, as it is a categorical data, it doesn't require us to check for the normality. Thus, aircraft age cannot be said to have a normality.
+
+#### This means we cannot use the Point-Biserial Correlation to directly answer the question.
+
+#### However, we can still try to look for their correlation further using a simple visualization.
+
+#### Second Assumption: Do both variable have similar spread (variance)?
+
+```{r}
+temp_y_less = subset(dfAge_Delays, Delayed == 0)
+
+ggplot(temp_y_less, aes(x=Delayed, y=AircraftAge)) + 
+    geom_boxplot(fill="slateblue", alpha=0.2) + 
+    xlab("AircraftAge")
+```
+
+```{r}
+temp_y_full = subset(dfAge_Delays, Delayed == 1)
+
+ggplot(temp_y_full, aes(x=Delayed, y=AircraftAge)) + 
+    geom_boxplot(fill="slateblue", alpha=0.2) + 
+    xlab("AircraftAge")
+```
+
+To reiterate the same variance shown on both boxplot, we can try to find the mean and standard deviation for each group.
+
+```{r}
+cat(
+    'std of plane age with no delay', sd(temp_y_less$AircraftAge), '\n',
+'mean of plane age with no delay', mean(temp_y_less$AircraftAge), '\n',
+    'std of plane age with delay', sd(temp_y_full$AircraftAge), '\n',
+'mean of plane age with delay', mean(temp_y_full$AircraftAge)
+)
+```
+
+From the output number of mean and standard deviation above, it shows that the mean and standard deviation for aircraft age with no delay is 11.19509 and 5.372624 respectively. While, the mean and standard deviation for aircraft age with delay is 11.36211 and 5.934754. Hence, we can conclude that both the aircraft age and the delays have a small and similar variance.
+
+#### Finally, calculate the Point-Biserial Correlation to determine whether they are related or not.
+
+```{r}
+cor.test(dfAge_Delays$AircraftAge, dfAge_Delays$Delayed)
+```
+
+#### Although the assumptions for correlation is already falls off, however, when we try to keep doing the Point biserial Correlation, we can easily see from the illustration above that a coefficient of 1.47% and p value of 0.006008 is so small, indicating aircraft age and the delay of an aircraft is not correlated.
+
+#### Despite that, we will try to look further for correlation using a simple visualization.
+
+#### Firstly, we will try to see the graph of regression line of the sum of all delay for each aircraft age.
+
+```{r}
+temp_sum_delay <- dfAge_Delays %>%
+  group_by(AircraftAge) %>%
+  summarise(Freq = sum(Delayed))
+
+library(readxl) 
+
+# Plot a Scatter PLot
+plot(temp_sum_delay$AircraftAge, temp_sum_delay$Freq, 
+     main='Regression for AircraftAge and Freq', 
+     xlab='AircraftAge',ylab='Freq') 
+  
+# plot a Regression Line
+abline(lm(Freq~AircraftAge,data=temp_sum_delay),col='red') 
+```
+
+From the regression graph above, it shows the sums of all delay and non-delay in each flight age. However, it isn't enough to make any conclusion based on it. To solve this underlying issue, we will use the total amount or means of delay of each aircraft age.
+
+```{r}
+# Sum of All Delay and Non-Delay
+temp_total_delay = dfAge_Delays %>% count(AircraftAge)
+
+# Plot a Scatter PLot
+plot(temp_total_delay$AircraftAge, temp_total_delay$n, 
+     main='Regression for AircraftAge and n', 
+     xlab='AircraftAge',ylab='n') 
+  
+# Plot a Regression Line
+abline(lm(n~AircraftAge,data=temp_total_delay),col='red') 
+```
+
+```{r}
+# The Average Delay
+temp_mean_delay <- dfAge_Delays %>%
+  group_by(AircraftAge) %>%
+  summarise(Freq = mean(Delayed))
+
+library(readxl) 
+
+# Plot a Scatter Plot
+plot(temp_mean_delay$AircraftAge, temp_mean_delay$Freq, 
+     main='Regression for AircraftAge and Freq', 
+     xlab='AircraftAge',ylab='Freq') 
+  
+# Plot a Regression Line
+abline(lm(Freq~AircraftAge,data=temp_mean_delay),col='red') 
+```
+
+From both regression line graph above, it shows that the average number of delay happen more often on older aircrafts compare to new aircrafts. However,if we look at the total number of delay flight for each age, it can be seen that on number of delay flight in older aircrafts is much lower than newer aircrafts.
+
+#### This can mean two things:
+
+1. The older planes indeed suffer more delay in average numbers, but as flights using older plane will be less in numbers, the actual total delay of older planes will be fewer considering that most flights will be using a newer aircrafts.
+2. Aircraft's age cannot be said to be directly correlated with flight's delay, as there is much factor beside aircraft age and number of flight delay that need to be consider in making an accurate analysis.
+
+#### In conclusion to answering Part 2b question, older planes cannot be truly said that they suffer more delays on a year-to-year basis.
+
+Conducting an oversampling could not exactly evaluate that older planes suffer more delay as it is a fact that flight with older planes with happen less frequently. Additionally, cutting the age of the counted aircrafts to below age of 20 is not possible. As based on this reference, aircraft is stated as old when they reach the age of 20 or above.
+
+Reference for aircraft age: <https://insijets.com/blog/does-the-age-of-an-aircraft-affect-its-safety>
+
+### Question 2c. (For each year, fit a logistic model for the probability of diverted US flights using as many features as possible from attributes of the departure date, the scheduled departure and arrival times, the coordinates and distance between departure and planned arrival airports, and the carrier. Visualize the coefficients across years.)
+
+Question Part 2c instruct us to visualize the coefficients of a logistic regression model using few given attributes from the question. These attributes are: departure date, the scheduled departure and arrival times, the coordinates and distance between departure and planned arrival airports, and the carrier.
+
+To answer this question, we will fit a logistic regression using the properties (predicted and predictors) given by the question. Before starting to answer the question, the first step we need to do is to do data preparation, as the required attributes (predictors) are in a difference datasets.
+
+In this question, the predicted attributes are the diverted data in diverted column. Where as the predictors attributes are DayofMonth as the flight's date, CRSDepTime and CRSArrTime as the scheduled and arrival time, Distance as the flight's distance, UniqueCarrier as the name of the flight's airline name, Origin and Dest as the flight origin and destination with their airport's coordinates.
+
+```{r}
+airport_data <- select(airport_data, 'iata', 'lat', 'long')
+airport_data[is.na(airport_data)] <- 0
+```
+
+```{r}
+dfDiverted_Flight <- select(dfmerge, 'DayofMonth', 'CRSDepTime', 'CRSArrTime', 'Distance', 'UniqueCarrier', 'Origin')
+dfDiverted_Flight[is.na(dfDiverted_Flight)] <- 0
+
+head(dfDiverted_Flight)
+tail(dfDiverted_Flight)
+```
+
+```{r}
+dfDiverted_Flight <- merge(x = dfDiverted_Flight, y = airport_data, by.x = "Origin", by.y = "iata") 
+
+dfDiverted_Flight[is.na(dfDiverted_Flight)] <- 0
+
+head(dfDiverted_Flight)
+tail(dfDiverted_Flight)
+```
+
+```{r}
+colnames(dfDiverted_Flight)
+```
+
+```{r}
+names(dfDiverted_Flight)[names(dfDiverted_Flight) == 'lat'] <- 'Originlat'
+names(dfDiverted_Flight)[names(dfDiverted_Flight) == 'long'] <- 'Originlong'
+```
+
+```{r}
+dfDiverted_Flight$Dest <- dfmerge$Dest
+dfDiverted_Flight[is.na(dfDiverted_Flight)] <- 0
+
+head(dfDiverted_Flight)
+tail(dfDiverted_Flight)
+```
+
+```{r}
+dfDiverted_Flight <- merge(x = dfDiverted_Flight, y = airport_data, by.x = "Dest", by.y = "iata") 
+
+dfDiverted_Flight[is.na(dfDiverted_Flight)] <- 0
+```
+
+```{r}
+colnames(dfDiverted_Flight)
+```
+
+```{r}
+names(dfDiverted_Flight)[names(dfDiverted_Flight) == 'lat'] <- 'Destlat'
+names(dfDiverted_Flight)[names(dfDiverted_Flight) == 'long'] <- 'Destlong'
+```
+
+```{r}
+dfDiverted_Flight$Diverted <- dfmerge$Diverted
+dfDiverted_Flight[is.na(dfDiverted_Flight)] <- 0
+
+# Divide The Essential Data for Later Purposes
+tempEssential <- select(dfDiverted_Flight, 'DayofMonth', 'CRSDepTime', 'CRSArrTime', 'Distance', 'Originlat', 'Originlong', 'Destlat', 'Destlong')
+
+head(tempEssential)
+tail(tempEssential)
+```
+
+#### As logistics regression requires all predictors to be numerical, hence, all the categorical data have to be change. In doing this process, we will create dummy variables. The attributes that will be change into dummies are UniqueCarrier, Origin, and Dest.
+
+```{r}
+head(dfDiverted_Flight)
+tail(dfDiverted_Flight)
+```
+
+```{r}
+temp_dummies <- select(dfDiverted_Flight, 'UniqueCarrier', 'Origin', 'Dest')
+
+head(temp_dummies)
+```
+
+```{r}
+library(fastDummies)
+
+Carrier <- dummy_cols(temp_dummies, 'UniqueCarrier', split = ",")
+
+head(Carrier)
+tail(Carrier)
+```
+
+```{r}
+Origin <- dummy_cols(temp_dummies, 'Origin', split = ",")
+```
+
+```{r}
+Dest <- dummy_cols(temp_dummies, 'Dest', split = ",")
+
+colnames(Dest)
+```
+
+Drop the unused attributes from the dummy.
+
+```{r}
+Carrier <- Carrier[ , -which(names(Carrier) %in% c("UniqueCarrier", "Origin", "Dest"))]
+Origin <- Origin[ , -which(names(Origin) %in% c("UniqueCarrier", "Origin", "Dest"))]
+Dest <- Dest[ , -which(names(Dest) %in% c("UniqueCarrier", "Origin", "Dest"))]
+```
+
+#### After the data preparation is complete, we can start to look for the logistic regression.
+
+```{r}
+# Merge The Predictors
+
+flight_dummy <- cbind(tempEssential, Carrier, Origin, Dest)
+flight_dummy[is.na(flight_dummy)] <- 0
+
+head(flight_dummy)
+tail(flight_dummy)
+```
+
+```{r}
+# Add The Predicted Attributes
+flight_dummy$Diverted <- dfDiverted_Flight$Diverted
+```
+
+```{r}
+# Split The Data into Train and Test
+library(caTools)
+library(ROCR)
+
+split <- sample.split(flight_dummy, SplitRatio = 0.8)
+split
+
+train_reg <- subset(flight_dummy, split == "TRUE")
+test_reg <- subset(flight_dummy, split == "FALSE")
+```
+
+```{r}
+# Training model
+logistic_model <- glm(Diverted ~ .,
+                    data = train_reg,
+                    family = "binomial")
+logistic_model
+```
+
+```{r}
+log_reg_sum <- summary(logistic_model)
+log_reg_sum
+```
+
+From the summary output of the logistic regression model, the coefficients table provides information about the predictors:
+
+- Estimate: These are the estimated values for the intercept and each predictor's coefficient (β). 
+- Std. Error: This indicates the standard error associated with each coefficient estimate. It reflects the level of uncertainty in the estimate, where as larger standard errors indicate less precise estimates.
+- z value: Calculated by dividing the estimate by its standard error, this statistic helps assess whether the coefficient is significantly different from zero.
+- Pr(>|z|): This column shows the p-values linked to the z-values. A smaller p-value indicates stronger evidence that the corresponding predictor has a statistically significant effect on the response variable.
+
+```{r}
+# Class Predictions
+predict_reg <- predict(logistic_model,
+                       test_reg, type = "response")
+predict_reg
+```
+
+```{r}
+# Predict the class of individuals
+predicted.classes <- ifelse(predict_reg > 0.5, "No Diverted", "Diverted")
+
+# Replace NA values with "No Arrival Delay"
+predicted.classes[is.na(predicted.classes)] <- "No Diverted"
+
+# Inspecting Results
+xtab <- table(predicted.classes, test_reg$Diverted)
+print(xtab)
+```
+
+From the outpout above, it shows that there is an inbalance in the data used. Hence, we will try to oversample the amount of diverted flights to make it equal with the non-diverted flights.
+
+```{r}
+library(imbalance)
+
+test_reg_over <- oversample(test_reg, method = "ADASYN",classAttr = "Diverted")
+test_reg_over
+```
+
+```{r}
+# Training model
+logistic_model_over <- glm(Diverted ~ .,
+                    data = test_reg_over,
+                    family = "binomial")
+logistic_model_over
+```
+
+```{r}
+# Class Predictions
+predict_reg_over <- predict(logistic_model_over,
+                       test_reg_over, type = "response")
+predict_reg_over
+```
+
+```{r}
+# Predict the class of individuals
+predicted_over.classes <- ifelse(predict_reg_over > 0.5, "No Diverted", "Diverted")
+
+# Replace NA values with "No Arrival Delay"
+predicted_over.classes[is.na(predicted_over.classes)] <- "No Diverted"
+
+# Inspecting Results
+xtab <- table(predicted_over.classes, test_reg_over$Diverted)
+print(xtab)
+```
+
+From the result above, it shows that the matrix has a good proportion of diverted and non-diverted flights, indicating that the model is a good model to predict diverted flights with the given attributes.
+
+For the final step, we will use ROC Curve to further evaluate the model. For a random classifier, it has an area under the curve of 0.5, while AUC for a perfect classifier is equal to 1.
+
+```{r}
+# Changing probabilities
+predict_reg_over <- ifelse(predict_reg_over >0.5, 1, 0)
+ 
+# Evaluating model accuracy using confusion matrix
+table(test_reg_over$Diverted, predict_reg_over)
+ 
+missing_classerr <- mean(predict_reg_over != test_reg_over$Diverted)
+print(paste('Accuracy =', 1 - missing_classerr))
+ 
+# ROC-AUC Curve
+ROCPred <- prediction(predict_reg_over, test_reg_over$Diverted)
+ROCPer <- performance(ROCPred, measure = "tpr",
+                      x.measure = "fpr")
+ 
+auc <- performance(ROCPred, measure = "auc")
+auc <- auc@y.values[[1]]
+auc
+ 
+# Plotting curve
+plot(ROCPer)
+plot(ROCPer, colorize = TRUE,
+     print.cutoffs.at = seq(0.1, by = 0.1),
+     main = "ROC CURVE")
+abline(a = 0, b = 1)
+ 
+auc <- round(auc, 4)
+legend(.6, .4, auc, title = "AUC", cex = 1)
+```
+
+The output of the model's ROC Curve above shows that it has a very good value. Hence, the modelling process can be concluded.
+
+#### Conclusion
+Even though the iteration is still not enough, we can still get enough data that makes a balanced confusion matrix. Based on the accuracy, precision, and recall, the model does a good job in predicting the diverted flights.

@@ -1,0 +1,118 @@
+---
+title: "ST2195 Programming Coursework Part 1"
+author: "Darren Alexander"
+output: html_document
+---
+
+### Part 1
+```{r}
+# install.packages("ggplot2")
+library(ggplot2)
+```
+
+```{r}
+# Metropolis-Hastings Algorithm (Random Walk Metropolis)
+metropolis_hastings <- function(N, s) {
+  x <- numeric(N)
+  accept <- 0
+  for (i in 2:N) {
+    x_star <- rnorm(1, mean = x[i - 1], sd = s)
+    ratio <- exp(-abs(x_star)) / exp(-abs(x[i - 1]))
+    u <- runif(1)
+    if (log(u) < log(ratio)) {
+      x[i] <- x_star
+      accept <- accept + 1
+    } else {
+      x[i] <- x[i - 1]
+    }
+  }
+  list(samples = x, acceptance_rate = accept / (N-1))
+}
+```
+
+```{r}
+# Define the Function to Calculate R̂ 
+calculate_Rb <- function(chains) {
+  J <- length(chains)
+  N <- length(chains[[1]])
+
+  Mj <- sapply(chains, mean)
+  Vj <- sapply(chains, var)
+
+  W <- mean(Vj)
+  M <- mean(Mj)
+
+  B <- N / (J - 1) * sum((Mj - M) ^ 2)
+
+  Rb <- sqrt((B + W) / W)
+
+  return(Rb)
+}
+```
+
+#### Part 1(a)
+```{r}
+# Run the Metropolis Hastings Algorithm with N = 10000 and s = 1
+N <- 10000
+s <- 1
+result <- metropolis_hastings(N, s)
+samples <- result$samples
+acceptance_rate <- result$acceptance_rate
+```
+
+```{r}
+# Plot Histogram, Kernel Density Plot, and True Density
+p <- ggplot(data.frame(x = samples), aes(x = x)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "lightgray", alpha = 0.5) +
+  geom_density(color = "black") +
+  stat_function(fun = function(x) 0.5 * exp(-abs(x)), color = "red", linetype = "dashed") +
+  labs(title = "Metropolis-Hastings Algorithm",
+       x = "x",
+       y = "Density") +
+  theme_minimal()
+```
+
+```{r}
+# Compute the Sample Mean, Sample Standard Deviation, and Acceptance Rate
+sample_mean <- mean(samples)
+sample_sd <- sd(samples)
+
+print(sample_mean)
+print(sample_sd)
+print(acceptance_rate)
+```
+
+#### Part 1(b)
+```{r}
+# Run R̂ Over a Range of s values in the interval between 0.001 and 1
+J <- 4
+s_values <- seq(0.001, 1, length.out = 100)
+Rb_values <- numeric(length(s_values))
+N <- 2000
+
+for (i in seq_along(s_values)) {
+  s <- s_values[i]
+  chains <- replicate(J, metropolis_hastings(N, s)$samples, simplify = FALSE)
+  Rb_values[i] <- calculate_Rb(chains)
+}
+```
+
+```{r}
+# Plot R̂ Values for Metropolis-Hastings Algorithm
+plot_data <- data.frame(s_values, Rb_values)
+
+p2 <- ggplot(plot_data, aes(x = s_values, y = Rb_values)) +
+  geom_line(color = "blue") +
+  geom_hline(yintercept = 1.05, linetype = "dashed", color = "red") +
+  labs(title = "Convergence Diagnostic (R̂) for Metropolis-Hastings Algorithm",
+       subtitle = "R̂ near 1 indicates convergence; threshold = 1.05",
+       x = "s",
+       y = expression(hat(R))) +
+theme_minimal()
+```
+
+```{r}
+# Display plots
+print (p)
+print (p2)
+```
